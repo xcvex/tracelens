@@ -70,6 +70,9 @@ class Diagnostics:
         # Detect latency jumps
         self._detect_latency_jumps(hops, diagnosis)
         
+        # Detect route type
+        self._detect_route_type(hops, diagnosis)
+        
         # Generate summary issues
         self._generate_issues(diagnosis)
         
@@ -221,3 +224,40 @@ class Diagnostics:
                 )
             else:
                 diagnosis.issues.append(f"Latency jump +{delta}ms at hop {hop}")
+
+    def _detect_route_type(self, hops: list[EnrichedHop], diagnosis: Diagnosis):
+        """Detect route type based on ASNs"""
+        networks = set()
+        
+        for hop in hops:
+            if hop.asn:
+                asn = hop.asn.upper() if hop.asn.upper().startswith('AS') else f"AS{hop.asn}"
+                
+                if asn == 'AS4809':
+                    networks.add('CN2')
+                elif asn == 'AS4134':
+                    networks.add('163')
+                elif asn == 'AS9929':
+                    networks.add('9929')
+                elif asn == 'AS4837':
+                    networks.add('4837')
+                elif asn == 'AS58453':
+                    networks.add('CMI')
+                elif asn == 'AS9808':
+                    networks.add('CMNET')
+                elif asn == 'AS10099':
+                    networks.add('CUG')
+        
+        # Determine primary route type
+        if 'CN2' in networks:
+            diagnosis.route_type = 'CN2 (China Telecom Next-Gen)'
+        elif '9929' in networks:
+            diagnosis.route_type = '9929 (China Unicom Premium)'
+        elif 'CMI' in networks:
+            diagnosis.route_type = 'CMI (China Mobile International)'
+        elif '163' in networks:
+            diagnosis.route_type = '163 (China Telecom Backbone)'
+        elif '4837' in networks:
+            diagnosis.route_type = '4837 (China Unicom Backbone)'
+        elif 'CMNET' in networks:
+            diagnosis.route_type = 'CMNET (China Mobile Backbone)'

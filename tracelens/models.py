@@ -111,4 +111,5 @@ class Diagnosis:
     filtered_hops: list[int] = field(default_factory=list)
     latency_jumps: list[tuple[int, float]] = field(default_factory=list)  # (hop, delta_ms)
     egress_hop: Optional[int] = None
+    route_type: Optional[str] = None
     issues: list[str] = field(default_factory=list)

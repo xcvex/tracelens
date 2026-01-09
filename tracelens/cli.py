@@ -297,6 +297,16 @@ def main(target: str, protocol: str, port: int, max_hops: int,
         sys.exit(1)
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted[/]")
+        
+        # Print summary for partial results
+        if enriched_hops:
+            output.print_separator()
+            diagnostics = Diagnostics()
+            # Note: add_tags modifies in-place
+            diagnostics.add_tags(enriched_hops)
+            diagnosis = diagnostics.analyze(enriched_hops)
+            output.print_diagnosis(diagnosis)
+            
         sys.exit(130)
     except Exception as e:
         output.print_error(f"Unexpected error: {e}")

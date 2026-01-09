@@ -29,6 +29,46 @@ TAG_STYLES = {
     'destination': ('✅', 'green'),
 }
 
+# Common ISP Network Tags
+NETWORK_MAP = {
+    # China Telecom
+    'AS4809': 'CN2',      # China Telecom Next Generation Carrier Network
+    'AS4134': '163',      # China Telecom Backbone
+    'AS23764': 'CTG',     # China Telecom Global
+    'AS36678': 'CTG',     # China Telecom Global
+    
+    # China Unicom
+    'AS9929': '9929',     # China Unicom Industrial Internet (CUII)
+    'AS4837': '4837',     # China Unicom Backbone
+    'AS10099': 'CUG',     # China Unicom Global
+    
+    # China Mobile
+    'AS58453': 'CMI',     # China Mobile International
+    'AS9808': 'CMNET',    # China Mobile Backbone
+    'AS58807': 'CMHK',    # China Mobile Hong Kong
+    
+    # Cloud / CDN
+    'AS45102': 'Aliyun',
+    'AS37963': 'Aliyun',
+    'AS16509': 'Amazon',
+    'AS15169': 'Google',
+    'AS8075': 'Microsoft',
+    'AS13335': 'Cloudflare',
+    'AS20473': 'Choopa',  # Vultr/Constant
+    
+    # Tier 1 / Backbone
+    'AS3257': 'GTT',
+    'AS174': 'Cogent',
+    'AS3356': 'Level3',
+    'AS2914': 'NTT',
+    'AS6939': 'HE',
+    'AS6453': 'Tata',
+    'AS1299': 'Telia',
+    'AS7922': 'Comcast',
+    'AS7018': 'AT&T',
+    'AS701': 'Verizon',
+}
+
 
 class ConsoleOutput:
     """
@@ -80,7 +120,7 @@ class ConsoleOutput:
         header.append(f"{'IP':<16}  ", style="bold magenta")
         header.append(f"{'Status':<6}  ", style="bold magenta")
         header.append(f"{'ASN':<8}  ", style="bold magenta")
-        header.append(f"{'Location':<14}  ", style="bold magenta")
+        header.append(f"{'Location':<20}  ", style="bold magenta")
         header.append(f"{'Organization':<30}", style="bold magenta")
         
         self.console.print("─" * 115)
@@ -88,6 +128,23 @@ class ConsoleOutput:
         self.console.print("─" * 115)
         self._table_header_printed = True
     
+    def _pad_visual(self, text: str, width: int) -> str:
+        """Pad text to visual width, accounting for emojis"""
+        visual_len = 0
+        for char in text:
+            code = ord(char)
+            # Regional Indicator Symbols (flags) - count as 1 each (pair is 2)
+            if 0x1F1E6 <= code <= 0x1F1FF:
+                visual_len += 1
+            # Other wide characters (emojis, CJK)
+            elif code > 0x2E80:
+                visual_len += 2
+            else:
+                visual_len += 1
+        
+        padding = max(0, width - visual_len)
+        return text + " " * padding
+
     def print_hop_realtime(self, hop: 'EnrichedHop'):
         """Print a single hop result in real-time"""
         self.print_table_header()
@@ -96,16 +153,22 @@ class ConsoleOutput:
         rtt_str = self._format_rtt(hop.rtts)
         geo_str = self._format_geo(hop.geo)
         tags_str = self._format_tags(hop.tags)
-        org_str = self._format_org(hop.org)
+        org_str = self._format_org(hop.org, hop.asn)
+        
+        # Add status for timeout hops
+        if not hop.ip and not tags_str:
+            tags_str = "🚫"
         
         # Build line: # | RTT | IP | Status | ASN | Location | Organization
         line = Text()
         line.append(f"{hop.hop:>3}  ", style="dim")
         line.append(f"{rtt_str:^16}  ")
         line.append(f"{(hop.ip or '-'):<16}  ")
-        line.append(f"{tags_str:<6}  ")
+        
+        # Manual padding for columns with emojis
+        line.append(f"{self._pad_visual(tags_str, 6)}  ")
         line.append(f"{(hop.asn or '-'):<8}  ")
-        line.append(f"{geo_str:<14}  ")
+        line.append(f"{self._pad_visual(geo_str, 20)}  ")
         line.append(f"{org_str:<30}")
         
         self.console.print(line)
@@ -133,7 +196,7 @@ class ConsoleOutput:
         line.append(f"{hop.hop:>3}  ", style="dim")
         line.append(f"{rtt_str:^16}  ")
         line.append(f"{(hop.ip or '*'):<16}  ", style="yellow" if hop.all_timeout else "")
-        line.append(f"{tag:<6}  ")
+        line.append(f"{self._pad_visual(tag, 6)}  ")
         line.append(f"{'-':<8}  ", style="dim")
         line.append(f"{'-':<14}  ", style="dim")
         line.append(f"{'(enriching...)':<30}", style="dim italic")
@@ -184,7 +247,7 @@ class ConsoleOutput:
                 self._format_tags(hop.tags),
                 hop.asn or "-",
                 self._format_geo(hop.geo),
-                self._format_org(hop.org)
+                self._format_org(hop.org, hop.asn)
             )
         
         # Panel header
@@ -209,6 +272,13 @@ class ConsoleOutput:
         else:
             content.append("❌ ", style="red")
             content.append("Target Unreachable", style="bold red")
+        
+        # Route Type
+        if diagnosis.route_type:
+            content.append("\n")
+            content.append("🛣️ ", style="blue")
+            content.append("Route Type: ", style="bold")
+            content.append(diagnosis.route_type, style="cyan")
         
         # Filtered hops
         if diagnosis.filtered_hops:
@@ -270,8 +340,8 @@ class ConsoleOutput:
                 parts.append(f"{r:.0f}" if r is not None else "*")
             return " / ".join(parts)
     
-    def _format_org(self, org: Optional[str]) -> str:
-        """Format organization name - extract key part, no truncation"""
+    def _format_org(self, org: Optional[str], asn: Optional[str] = None) -> str:
+        """Format organization name with network tag"""
         if not org:
             return "-"
         
@@ -285,31 +355,38 @@ class ConsoleOutput:
         # If org contains comma, take first meaningful part
         if ',' in org:
             parts = org.split(',')
-            # Take first part, but if it's just an AS name, take more
             org = parts[0].strip()
+            
+        # Add Network Tag if ASN matches
+        if asn:
+            # Handle AS prefix if present/absent
+            asn_key = asn.upper() if asn.upper().startswith('AS') else f"AS{asn}"
+            if asn_key in NETWORK_MAP:
+                tag = NETWORK_MAP[asn_key]
+                return f"[{tag}] {org}"
         
-        # No truncation - show full org name
         return org
     
     def _format_geo(self, geo) -> str:
-        """Format geo info with flag"""
+        """Format geo info with flag and code"""
         if not geo:
             return "-"
         
         parts = []
         
+        # Flag and Country Code
         if geo.country_code:
             flag = get_flag(geo.country_code)
-            parts.append(flag)
+            # Show both flag and code for better compatibility
+            parts.append(f"{flag} {geo.country_code}")
         
+        # City or Country Name
         if geo.city:
             city = geo.city[:12] if len(geo.city) > 12 else geo.city
             parts.append(city)
         elif geo.country:
             country = geo.country[:12] if len(geo.country) > 12 else geo.country
             parts.append(country)
-        elif geo.country_code:
-            parts.append(geo.country_code)
         
         return " ".join(parts) if parts else "-"
     
