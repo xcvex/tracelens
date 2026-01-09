@@ -1,0 +1,4 @@
+rich>=13.0.0
+dnspython>=2.4.0
+httpx>=0.25.0
+click>=8.0.0

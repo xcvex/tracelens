@@ -1,0 +1,192 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build executable
+        run: |
+          pyinstaller tracelens.spec
+          # Verify the build
+          ./dist/tracelens.exe --version
+
+      - name: Create ZIP archive
+        run: |
+          Compress-Archive -Path dist/tracelens.exe -DestinationPath tracelens-windows-x64.zip
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracelens-windows-x64
+          path: tracelens-windows-x64.zip
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build executable
+        run: |
+          pyinstaller tracelens.spec
+          chmod +x dist/tracelens
+          # Verify the build
+          ./dist/tracelens --version
+
+      - name: Create tarball
+        run: |
+          cd dist
+          tar -czvf ../tracelens-linux-x64.tar.gz tracelens
+          cd ..
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracelens-linux-x64
+          path: tracelens-linux-x64.tar.gz
+
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build executable
+        run: |
+          pyinstaller tracelens.spec
+          chmod +x dist/tracelens
+          ./dist/tracelens --version
+
+      - name: Create tarball
+        run: |
+          cd dist
+          tar -czvf ../tracelens-linux-arm64.tar.gz tracelens
+          cd ..
+
+      - name: Upload Linux ARM64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracelens-linux-arm64
+          path: tracelens-linux-arm64.tar.gz
+
+  release:
+    needs: [build-windows, build-linux, build-linux-arm64]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: TraceLens ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/tracelens-windows-x64/tracelens-windows-x64.zip
+            artifacts/tracelens-linux-x64/tracelens-linux-x64.tar.gz
+            artifacts/tracelens-linux-arm64/tracelens-linux-arm64.tar.gz
+          body: |
+            ## TraceLens ${{ steps.version.outputs.VERSION }}
+            
+            Enhanced traceroute with automatic network intelligence enrichment.
+            
+            ### Downloads
+            
+            | Platform | Architecture | File |
+            |----------|--------------|------|
+            | Windows | x64 | `tracelens-windows-x64.zip` |
+            | Linux | x64 | `tracelens-linux-x64.tar.gz` |
+            | Linux | ARM64 | `tracelens-linux-arm64.tar.gz` |
+            
+            ### Installation
+            
+            **Windows:**
+            ```powershell
+            # Extract and run (requires Administrator)
+            Expand-Archive tracelens-windows-x64.zip -DestinationPath .
+            .\tracelens.exe 8.8.8.8
+            ```
+            
+            **Linux:**
+            ```bash
+            # Extract and run (requires root/sudo)
+            tar -xzf tracelens-linux-x64.tar.gz
+            sudo ./tracelens 8.8.8.8
+            ```
+            
+            ### Features
+            
+            - 🌐 Multi-protocol: ICMP, TCP, UDP
+            - 📊 ASN/Organization lookup
+            - 🌍 Geographic location with flags
+            - 🔍 ICMP filtering detection
+            - 🚀 Latency jump analysis
+            - 📁 JSON export
